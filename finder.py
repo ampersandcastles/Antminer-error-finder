@@ -117,6 +117,7 @@ def main():
                         results.append([worker_id, ip, log[0], log[1]])
                     
                     # Check for ASIC chip errors and add to results
+                    # Maybe think about this differntly. Look for "will power off hashboard" and *then* figure out why the hashboard has been powered off.
                     for chain, counts in asic_errors.items():
                         if counts.count(0) >= 3:
                             results.append([worker_id, ip, "ASIC Error", f"Chain {chain} has {counts.count(0)} failed checks with 0 ASICs found"])

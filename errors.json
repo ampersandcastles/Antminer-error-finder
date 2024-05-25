@@ -1,0 +1,14 @@
+{
+    "error_keywords": [
+        "ERROR_TEMP_TOO_HIGH",
+        "ERROR_HASHRATE_TOO_LOW",
+        "ERROR_NETWORK_DISCONNECTED",
+        "ERROR_POWER_LOST: power voltage rise or drop",
+        "SWEEP_STRING",
+        "_pic_write_iic failed!",
+        "PLL read exceeded wait time",
+        "ERROR_SOC_INIT: soc init failed",
+        "fail to read 0:1",
+        "fail to write 0:1"
+    ]
+}

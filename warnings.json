@@ -1,0 +1,5 @@
+{
+    "warning_keywords": {
+        "the ECC used on your system is too weak compared to the one required by the NAND chip": "warning"
+  }
+}

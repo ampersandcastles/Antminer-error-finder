@@ -103,6 +103,7 @@ def get_worker_id(ssh_client):
         match = re.search(r'"user" *: *"[^.]*\.(\w+)"', config_content)
         if match:
             worker_id = match.group(1)
+            print(f"Got Worker ID: ", worker_id)
         else:
             worker_id = "Unknown"
     except Exception as e:

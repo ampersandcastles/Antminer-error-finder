@@ -103,7 +103,7 @@ def get_worker_id(ssh_client):
         match = re.search(r'"user" *: *"[^.]*\.(\w+)"', config_content)
         if match:
             worker_id = match.group(1)
-            print(f"Got Worker ID: ", worker_id)
+            print(f"Got Worker ID: {worker_id}")
         else:
             worker_id = "Unknown"
     except Exception as e:
@@ -140,7 +140,7 @@ def main():
                         failed_checks = unique_asic_errors.get(chain, 0) + 1
                         unique_asic_errors[chain] = failed_checks
                         if asic_count == 0 and failed_checks == 3:
-                            results.add((worker_id, ip, log_file, "ASIC Error", f"Chain {chain} has 3 failed checks with {asic_count} ASICs found"))
+                            results.add((worker_id, ip, log[0], "ASIC Error", f"Chain {chain} has 3 failed checks with {asic_count} ASICs found"))
                     
                     ssh_client.close()
                     break

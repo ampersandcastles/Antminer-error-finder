@@ -1,7 +1,9 @@
 import paramiko
-import csv
 import re
 import json
+import os
+from datetime import datetime
+import pandas as pd
 
 # Load credentials from a JSON file
 def load_credentials(file_path):
@@ -34,10 +36,10 @@ def read_ips(file_path):
     return [ip.strip() for ip in ips]
 
 # Function to check log files for keywords and ASIC errors
-def check_logs(ip, ssh_client, worker_id):
+def check_logs(ip, ssh_client, worker_id, current_date):
     logs = []
     asic_errors = set()  # Using set to avoid duplicate errors
-    results = set()  # Using set to avoid duplicate entries
+    results = []  # Using list to avoid duplicate entries
     try:
         print(f"Checking logs on {ip}")
         stdin, stdout, stderr = ssh_client.exec_command("find /var/log/ -type f")
@@ -58,9 +60,13 @@ def check_logs(ip, ssh_client, worker_id):
             stdin, stdout, stderr = ssh_client.exec_command(f"cat {log_file}")
             log_content = stdout.read().decode('utf-8', errors='ignore')
             print(f"Content of {log_file}: {log_content[:500]}")  # Debug statement to show part of the log content
+            
+            # Track unique errors within this log file
+            seen_errors = set()
             for keyword, error_type in error_keywords.items():
-                if keyword in log_content:
+                if keyword in log_content and (log_file, error_type, keyword) not in seen_errors:
                     logs.append((log_file, error_type, keyword))
+                    seen_errors.add((log_file, error_type, keyword))
 
             # Check for ASIC chip errors and power-off messages
             for match in asic_pattern.finditer(log_content):
@@ -74,20 +80,23 @@ def check_logs(ip, ssh_client, worker_id):
                 chain, found_asic_count, board = match.groups()
                 found_asic_count = int(found_asic_count)
                 chain = int(chain)
-                print(f"Power-off message found: Chain {chain}, ASIC count: {found_asic_count}, Board: {board}")  # Debug statement
-                results.add((worker_id, ip, log_file, "ASIC Error", f"Chain {chain} has failed with {found_asic_count} ASICs found and will power off hash board {board}"))
+                if (log_file, "ASIC Error", f"Chain {chain} has failed with {found_asic_count} ASICs found and will power off hash board {board}") not in seen_errors:
+                    results.append((current_date, worker_id, ip, log_file, "ASIC Error", f"Chain {chain} has failed with {found_asic_count} ASICs found and will power off hash board {board}"))
+                    seen_errors.add((log_file, "ASIC Error", f"Chain {chain} has failed with {found_asic_count} ASICs found and will power off hash board {board}"))
 
             # Check for EEPROM errors
             for match in eeprom_error_pattern.finditer(log_content):
                 chain = match.group(1)
-                print(f"EEPROM error found: Chain {chain}")  # Debug statement
-                results.add((worker_id, ip, log_file, "EEPROM Error", f"Data load fail for chain {chain}"))
+                if (log_file, "EEPROM Error", f"Data load fail for chain {chain}") not in seen_errors:
+                    results.append((current_date, worker_id, ip, log_file, "EEPROM Error", f"Data load fail for chain {chain}"))
+                    seen_errors.add((log_file, "EEPROM Error", f"Data load fail for chain {chain}"))
             
             # Check for chip bin errors
             for match in chip_bin_pattern.finditer(log_content):
                 chain = match.group(1)
-                print(f"Chip bin error found: Chain {chain}")  # Debug statement
-                results.add((worker_id, ip, log_file, "Chip Bin Error", f"No chip bin for chain {chain}"))
+                if (log_file, "Chip Bin Error", f"No chip bin for chain {chain}") not in seen_errors:
+                    results.append((current_date, worker_id, ip, log_file, "Chip Bin Error", f"No chip bin for chain {chain}"))
+                    seen_errors.add((log_file, "Chip Bin Error", f"No chip bin for chain {chain}"))
 
     except Exception as e:
         print(f"Error checking logs on {ip}: {e}")
@@ -114,7 +123,11 @@ def get_worker_id(ssh_client):
 # Main function to iterate over IPs and check for errors
 def main():
     ips = read_ips('ips.txt')
-    results = set()  # Using set to avoid duplicate entries
+    results = []  # Using a list to collect results
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_year = datetime.now().strftime('%Y')
+    current_month = datetime.now().strftime('%B')
+    current_day = datetime.now().strftime('%d')
 
     for ip in ips:
         print(f"Processing IP: {ip}")
@@ -130,30 +143,35 @@ def main():
                     ssh_client.connect(ip, username=username, password=password)
                     connected = True
                     worker_id = get_worker_id(ssh_client)
-                    logs, asic_errors, asic_results = check_logs(ip, ssh_client, worker_id)
-                    results.update(asic_results)
+                    logs, asic_errors, asic_results = check_logs(ip, ssh_client, worker_id, current_date)
+                    results.extend(asic_results)
                     for log in logs:
-                        results.add((worker_id, ip, log[0], log[1], log[2]))
+                        results.append((current_date, worker_id, ip, log[0], log[1], log[2]))
                     
                     unique_asic_errors = {}  # Using a dictionary to store chain and failed check count.
                     for chain, asic_count in asic_errors:
                         failed_checks = unique_asic_errors.get(chain, 0) + 1
                         unique_asic_errors[chain] = failed_checks
                         if asic_count == 0 and failed_checks == 3:
-                            results.add((worker_id, ip, log[0], "ASIC Error", f"Chain {chain} has 3 failed checks with {asic_count} ASICs found"))
+                            results.append((current_date, worker_id, ip, log[0], "ASIC Error", f"Chain {chain} has 3 failed checks with {asic_count} ASICs found"))
                     
                     ssh_client.close()
                     break
                 except Exception as e:
                     print(f"Connection failed for {ip} with {username}:{password} - {e}")
                     ssh_client.close()
-    
-    # Write results to CSV
+
+    # Create the directory structure
+    directory = os.path.join(current_year, current_month, current_day)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # Convert results to a DataFrame
+    results_df = pd.DataFrame(results, columns=["Date", "Worker ID", "IP Address", "Log File", "Error Type", "Error Message"])
+
+    # Save the results to a CSV file
     print("Writing results to CSV")
-    with open('results.csv', 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["Worker ID", "IP Address", "Log File", "Error Type", "Error Message"])
-        writer.writerows(results)
+    results_df.to_csv(os.path.join(directory, 'results.csv'), index=False)
     print("Done")
 
 if __name__ == "__main__":

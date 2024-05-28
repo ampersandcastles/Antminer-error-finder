@@ -1,9 +1,8 @@
 import paramiko
 import re
 import json
-import os
+import csv
 from datetime import datetime
-import pandas as pd
 
 # Load credentials from a JSON file
 def load_credentials(file_path):
@@ -14,14 +13,6 @@ def load_credentials(file_path):
 def load_error_keywords(file_path):
     with open(file_path, 'r') as file:
         return json.load(file)['error_keywords']
-
-# Define paths to the configuration files
-CREDENTIALS_FILE = 'credentials.json'
-ERRORS_FILE = 'errors.json'
-
-# Load credentials and error keywords
-credentials = load_credentials(CREDENTIALS_FILE)
-error_keywords = load_error_keywords(ERRORS_FILE)
 
 # Regex patterns for ASIC chip errors and power-off messages
 asic_pattern = re.compile(r"Chain\[(\d+)\]: find (\d+) asic, times \d+")
@@ -47,16 +38,8 @@ def check_logs(ip, ssh_client, worker_id, current_date):
         for log_file in log_files:
             log_file = log_file.strip()
             print(f"Checking file: {log_file}")  # Debug statement
-            # Check if file should be ignored
-            if log_file.endswith(('tmp', 'utmp', 'btmp', 'wtmp')):
-                continue
             
-            # Check if file is a binary file
-            stdin, stdout, stderr = ssh_client.exec_command(f"file {log_file}")
-            file_type = stdout.read().decode('utf-8')
-            if 'text' not in file_type:
-                continue
-            
+            # Read the log file content directly
             stdin, stdout, stderr = ssh_client.exec_command(f"cat {log_file}")
             log_content = stdout.read().decode('utf-8', errors='ignore')
             print(f"Content of {log_file}: {log_content[:500]}")  # Debug statement to show part of the log content
@@ -65,6 +48,7 @@ def check_logs(ip, ssh_client, worker_id, current_date):
             seen_errors = set()
             for keyword, error_type in error_keywords.items():
                 if keyword in log_content and (log_file, error_type, keyword) not in seen_errors:
+                    print(f"Found keyword '{keyword}' in {log_file}")  # Debug statement
                     logs.append((log_file, error_type, keyword))
                     seen_errors.add((log_file, error_type, keyword))
 
@@ -125,9 +109,6 @@ def main():
     ips = read_ips('ips.txt')
     results = []  # Using a list to collect results
     current_date = datetime.now().strftime('%Y-%m-%d')
-    current_year = datetime.now().strftime('%Y')
-    current_month = datetime.now().strftime('%B')
-    current_day = datetime.now().strftime('%d')
 
     for ip in ips:
         print(f"Processing IP: {ip}")
@@ -161,18 +142,21 @@ def main():
                     print(f"Connection failed for {ip} with {username}:{password} - {e}")
                     ssh_client.close()
 
-    # Create the directory structure
-    directory = os.path.join(current_year, current_month, current_day)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-    # Convert results to a DataFrame
-    results_df = pd.DataFrame(results, columns=["Date", "Worker ID", "IP Address", "Log File", "Error Type", "Error Message"])
-
-    # Save the results to a CSV file
-    print("Writing results to CSV")
-    results_df.to_csv(os.path.join(directory, 'results.csv'), index=False)
+    # Write results to CSV
+    csv_file = 'results.csv'
+    print(f"Writing results to {csv_file}")
+    with open(csv_file, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Date", "Worker ID", "IP Address", "Log File", "Error Type", "Error Message"])
+        for result in results:
+            writer.writerow(result)
     print("Done")
 
 if __name__ == "__main__":
+    # Load credentials and error keywords
+    CREDENTIALS_FILE = 'credentials.json'
+    ERRORS_FILE = 'errors.json'
+    credentials = load_credentials(CREDENTIALS_FILE)
+    error_keywords = load_error_keywords(ERRORS_FILE)
+    
     main()

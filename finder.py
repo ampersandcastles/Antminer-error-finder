@@ -107,6 +107,21 @@ def check_logs(ip, ssh_client, worker_id, current_date, error_keywords):
                         seen_errors.add((log_file, CHIP_BIN_ERROR, f"No chip bin for chain {chain}"))
     return logs, asic_errors, results
 
+# Function to write results to a text file in the specified format
+def write_text_file(file_path, results):
+    with open(file_path, 'w') as file:
+        current_worker = None
+        for result in results:
+            date, worker_id, ip, log_file, error_type, error_message = result
+            if worker_id != current_worker:
+                if current_worker is not None:
+                    file.write("\n")  # Add a blank line between different workers
+                file.write(f"{worker_id}\n")
+                current_worker = worker_id
+            file.write(f"- {error_type}\n")
+            file.write(f"--- {error_message}\n")
+            file.write(f"-" * 80 + "\n")
+
 # Main function to iterate over IPs and check for errors
 def main():
     ips = read_ips('ips.txt')
@@ -147,6 +162,12 @@ def main():
         writer.writerow(["Date", "Worker ID", "IP Address", "Log File", "Error Type", "Error Message"])
         for result in results:
             writer.writerow(result)
+    
+    # Write results to text file
+    text_file = 'results.txt'
+    logging.info(f"Writing results to {text_file}")
+    write_text_file(text_file, results)
+
     logging.info("Done")
 
 if __name__ == "__main__":
